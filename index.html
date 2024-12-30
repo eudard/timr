@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timr - Time Tracking App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        .breathing {
+            animation: breathing 2s ease-in-out infinite;
+        }
+        @keyframes breathing {
+            0% { opacity: 0.5; }
+            50% { opacity: 1; }
+            100% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+    <div id="app">
+        <!-- Header -->
+        <header class="fixed top-0 left-0 right-0 bg-gray-800 shadow-lg z-10">
+            <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+                <h1 class="text-xl font-bold">Timr</h1>
+                <div class="flex space-x-2">
+                    <button @click="toggleTracking" 
+                            class="px-4 py-2 rounded-lg"
+                            :class="activeTask ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'">
+                        {{ activeTask ? 'Stop' : 'Track' }}
+                    </button>
+                    <button @click="showExportModal = true" class="p-1 text-blue-400 hover:bg-gray-700 rounded">
+                        <span class="material-icons text-sm">file_download</span>
+                    </button>
+                    <button @click="showImportModal = true" class="p-1 text-blue-400 hover:bg-gray-700 rounded">
+                        <span class="material-icons text-sm">file_upload</span>
+                    </button>
+                    <button @click="resetTasks" class="p-1 text-blue-400 hover:bg-gray-700 rounded">
+                        <span class="material-icons text-sm">refresh</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Tabs -->
+        <div class="mt-16 bg-gray-800">
+            <div class="container mx-auto px-4">
+                <div class="flex space-x-4">
+                    <button v-for="tab in tabs" 
+                            :key="tab.id"
+                            @click="currentTab = tab.id"
+                            class="py-3 px-4 relative"
+                            :class="currentTab === tab.id ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400'">
+                        {{ tab.name }}
+                        <span class="ml-1 text-xs bg-gray-700 px-2 py-1 rounded-full">
+                            {{ getTasksCount(tab.id) }}
+                        </span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Task List -->
+        <div class="container mx-auto px-4 py-4">
+            <div v-for="task in filteredTasks" :key="task.id" 
+                 :class="{'breathing': isActiveTask(task)}"
+                 class="bg-gray-800 rounded-lg p-3 mb-3 shadow-lg">
+                <div class="flex flex-col md:flex-row justify-between items-center">
+                    <div class="flex mr-3">
+                        <button v-if="!isActiveTask(task)" 
+                                @click="continueTask(task)"
+                                class="p-1 text-blue-400 hover:bg-gray-700 border border-blue-400">
+                            <span class="material-icons text-lg">play_arrow</span>
+                        </button>
+                        <button v-else 
+                                @click="stopTask(task)"
+                                class="p-1 text-red-400 hover:bg-gray-700 border border-red-400">
+                            <span class="material-icons text-lg">stop</span>
+                        </button>
+                    </div>
+                    <div class="flex-1">
+                        <div>
+                            <span class="font-medium">{{ task.taskName }}</span> <span class="text-sm text-gray-400">({{ task.projectName }})</span>
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1">
+                            {{ formatDateTime(task.startDateTime) }} - 
+                            {{ task.endDateTime ? formatDateTime(task.endDateTime) : 'Running' }}
+                        </div>
+                    </div>
+                    <div class="flex space-x-2 mt-2 md:mt-0 items-center">
+                        <span class="text-green-400 p-1">{{ calculatePrice(task) }}</span>
+                        
+                        <select v-model="task.state" 
+                                @change="updateTaskState(task)"
+                                class="bg-gray-700 text-sm rounded px-1 text-gray-300 border-none">
+                            <option value="active">Active</option>
+                            <option value="invoiced">Invoiced</option>
+                            <option value="archived">Archived</option>
+                        </select>
+
+                        <button @click="editTask(task)"
+                                class="p-1 text-gray-400 hover:bg-gray-700 rounded">
+                            <span class="material-icons text-sm">edit</span>
+                        </button>
+                        <button @click="deleteTask(task)"
+                                class="p-1 text-gray-400 hover:bg-gray-700 rounded">
+                            <span class="material-icons text-sm">delete</span>
+                        </button>
+                        
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- New/Edit Task Modal -->
+        <div v-if="showModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+                <h2 class="text-xl mb-4">{{ editingTask ? 'Edit Task' : 'New Task' }}</h2>
+                <form @submit.prevent="saveTask">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm mb-1">Project Name</label>
+                            <input v-model="taskForm.projectName" 
+                                   list="projects"
+                                   class="w-full bg-gray-700 rounded px-3 py-2" 
+                                   required>
+                            <datalist id="projects">
+                                <option v-for="project in existingProjects" :key="project" :value="project"/>
+                            </datalist>
+                        </div>
+                        <div>
+                            <label class="block text-sm mb-1">Task Name</label>
+                            <input v-model="taskForm.taskName" 
+                                   list="tasks"
+                                   class="w-full bg-gray-700 rounded px-3 py-2" 
+                                   required>
+                            <datalist id="tasks">
+                                <option v-for="task in existingTasks" :key="task" :value="task"/>
+                            </datalist>
+                        </div>
+                        <div class="flex space-x-4">
+                            <div class="flex-1">
+                                <label class="block text-sm mb-1">Hour Price</label>
+                                <input v-model="taskForm.hourPrice" 
+                                       type="number" 
+                                       step="0.01"
+                                       class="w-full bg-gray-700 rounded px-3 py-2" 
+                                       required>
+                            </div>
+                            <div class="w-32">
+                                <label class="block text-sm mb-1">Currency</label>
+                                <input v-model="taskForm.currency" 
+                                       list="currencies"
+                                       class="w-full bg-gray-700 rounded px-3 py-2" 
+                                       required>
+                                <datalist id="currencies">
+                                    <option v-for="currency in currencies" :key="currency" :value="currency"/>
+                                </datalist>
+                            </div>
+                        </div>
+                        <div v-if="editingTask">
+                            <div class="mb-4">
+                                <label class="block text-sm mb-1">Start Time</label>
+                                <input v-model="taskForm.startDateTime" 
+                                       type="datetime-local"
+                                       class="w-full bg-gray-700 rounded px-3 py-2" 
+                                       required>
+                            </div>
+                            <div>
+                                <label class="block text-sm mb-1">End Time</label>
+                                <input v-model="taskForm.endDateTime" 
+                                       type="datetime-local"
+                                       class="w-full bg-gray-700 rounded px-3 py-2"
+                                       :required="!isActiveTask(editingTask)">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-6 flex space-x-4">
+                        <button type="button" 
+                                @click="showModal = false"
+                                class="flex-1 px-4 py-2 bg-gray-600 rounded-lg hover:bg-gray-700">
+                            Cancel
+                        </button>
+                        <button type="submit"
+                                class="flex-1 px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700">
+                            {{ editingTask ? 'Save' : 'Start' }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Delete Confirmation Modal -->
+        <div v-if="showDeleteModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+                <h2 class="text-xl mb-4">Delete Task</h2>
+                <p>Are you sure you want to delete this task?</p>
+                <div class="mt-6 flex space-x-4">
+                    <button @click="showDeleteModal = false"
+                            class="flex-1 px-4 py-2 bg-gray-600 rounded-lg hover:bg-gray-700">
+                        Cancel
+                    </button>
+                    <button @click="confirmDelete"
+                            class="flex-1 px-4 py-2 bg-red-600 rounded-lg hover:bg-red-700">
+                        Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Export Modal -->
+        <div v-if="showExportModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+                <h2 class="text-xl mb-4">Export Data</h2>
+                <form @submit.prevent="exportTasks">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm mb-1">Start Date</label>
+                            <input v-model="exportForm.startDate" type="date" class="w-full bg-gray-700 rounded px-3 py-2" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm mb-1">End Date</label>
+                            <input v-model="exportForm.endDate" type="date" class="w-full bg-gray-700 rounded px-3 py-2" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm mb-1">Tab</label>
+                            <select v-model="exportForm.tab" class="w-full bg-gray-700 rounded px-3 py-2">
+                                <option value="">All</option>
+                                <option v-for="tab in tabs" :key="tab.id" :value="tab.id">{{ tab.name }}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm mb-1">Project</label>
+                            <select v-model="exportForm.project" class="w-full bg-gray-700 rounded px-3 py-2">
+                                <option value="">All</option>
+                                <option v-for="project in existingProjects" :key="project" :value="project">{{ project }}</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mt-6 flex space-x-4">
+                        <button type="button" 
+                                @click="showExportModal = false"
+                                class="flex-1 px-4 py-2 bg-gray-600 rounded-lg hover:bg-gray-700">
+                            Cancel
+                        </button>
+                        <button type="submit"
+                                class="flex-1 px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700">
+                            Export
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Import Modal -->
+        <div v-if="showImportModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+                <h2 class="text-xl mb-4">Import Data</h2>
+                <form @submit.prevent="importData">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm mb-1">CSV File</label>
+                            <input type="file" accept=".csv" @change="onFileChange" class="w-full bg-gray-700 rounded px-3 py-2" required>
+                        </div>
+                    </div>
+                    <div class="mt-6 flex space-x-4">
+                        <button type="button" 
+                                @click="showImportModal = false"
+                                class="flex-1 px-4 py-2 bg-gray-600 rounded-lg hover:bg-gray-700">
+                            Cancel
+                        </button>
+                        <button type="submit"
+                                class="flex-1 px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700">
+                            Import
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue
+
+        createApp({
+            data() {
+                return {
+                    tasks: [],
+                    currentTab: 'active',
+                    showModal: false,
+                    showDeleteModal: false,
+                    showExportModal: false,
+                    showImportModal: false,
+                    taskToDelete: null,
+                    editingTask: null,
+                    taskForm: {
+                        projectName: '',
+                        taskName: '',
+                        hourPrice: '',
+                        currency: ''
+                    },
+                    exportForm: {
+                        startDate: '',
+                        endDate: '',
+                        tab: '',
+                        project: ''
+                    },
+                    importFile: null,
+                    tabs: [
+                        { id: 'active', name: 'Active' },
+                        { id: 'invoiced', name: 'Invoiced' },
+                        { id: 'archived', name: 'Archived' }
+                    ],
+                    currencies: ['USD', 'EUR', 'CZK', 'GBP']
+                }
+            },
+            computed: {
+                activeTask() {
+                    return this.tasks.find(task => !task.endDateTime)
+                },
+                filteredTasks() {
+                    return this.tasks
+                        .filter(task => task.state === this.currentTab)
+                        .sort((a, b) => new Date(b.startDateTime) - new Date(a.startDateTime))
+                },
+                existingProjects() {
+                    return [...new Set(this.tasks.map(t => t.projectName))]
+                },
+                existingTasks() {
+                    return [...new Set(this.tasks.map(t => t.taskName))]
+                }
+            },
+            methods: {
+                toggleTracking() {
+                    if (this.activeTask) {
+                        this.stopTask(this.activeTask)
+                    } else {
+                        this.showModal = true
+                        this.editingTask = null
+                        this.taskForm = {
+                            projectName: '',
+                            taskName: '',
+                            hourPrice: '',
+                            currency: ''
+                        }
+                    }
+                },
+                saveTask() {
+                    if (this.editingTask) {
+                        Object.assign(this.editingTask, this.taskForm)
+                    } else {
+                        const newTask = {
+                            id: Date.now(),
+                            ...this.taskForm,
+                            state: 'active',
+                            startDateTime: new Date().toISOString(),
+                            endDateTime: null
+                        }
+                        this.tasks.push(newTask)
+                    }
+                    this.saveTasks()
+                    this.showModal = false
+                },
+                stopTask(task) {
+                    task.endDateTime = new Date().toISOString()
+                    this.saveTasks()
+                },
+                continueTask(task) {
+                    const newTask = {
+                        id: Date.now(),
+                        projectName: task.projectName,
+                        taskName: task.taskName,
+                        hourPrice: task.hourPrice,
+                        currency: task.currency,
+                        state: 'active',
+                        startDateTime: new Date().toISOString(),
+                        endDateTime: null
+                    }
+                    this.tasks.push(newTask)
+                    this.saveTasks()
+                },
+                editTask(task) {
+                    this.editingTask = task
+                    this.taskForm = {
+                        ...task,
+                        startDateTime: task.startDateTime ? new Date(task.startDateTime).toISOString().slice(0, 16) : '',
+                        endDateTime: task.endDateTime ? new Date(task.endDateTime).toISOString().slice(0, 16) : ''
+                    }
+                    this.showModal = true
+                },
+                deleteTask(task) {
+                    this.taskToDelete = task
+                    this.showDeleteModal = true
+                },
+                confirmDelete() {
+                    this.tasks = this.tasks.filter(t => t.id !== this.taskToDelete.id)
+                    this.saveTasks()
+                    this.showDeleteModal = false
+                    this.taskToDelete = null
+                },
+                updateTaskState(task) {
+                    this.saveTasks()
+                },
+                formatDateTime(dateTime) {
+                    return new Date(dateTime).toLocaleString()
+                },
+                calculatePrice(task) {
+                    const start = new Date(task.startDateTime)
+                    const end = task.endDateTime ? new Date(task.endDateTime) : new Date()
+                    const hours = (end - start) / (1000 * 60 * 60)
+                    return `${(hours * task.hourPrice).toFixed(2)} ${task.currency}`
+                },
+                getTasksCount(state) {
+                    return this.tasks.filter(task => task.state === state).length
+                },
+                isActiveTask(task) {
+                    return !task.endDateTime
+                },
+                saveTasks() {
+                    localStorage.setItem('timr-tasks', JSON.stringify(this.tasks))
+                },
+                loadTasks() {
+                    const saved = localStorage.getItem('timr-tasks')
+                    if (saved) {
+                        this.tasks = JSON.parse(saved)
+                    }
+                },
+                exportTasks() {
+                    const filteredTasks = this.tasks.filter(task => {
+                        if (this.exportForm.tab && task.state !== this.exportForm.tab) return false;
+                        if (this.exportForm.project && task.projectName !== this.exportForm.project) return false;
+                        if (this.exportForm.startDate && new Date(task.startDateTime) < new Date(this.exportForm.startDate)) return false;
+                        if (this.exportForm.endDate && new Date(task.endDateTime || new Date()) > new Date(this.exportForm.endDate)) return false;
+                        return true;
+                    });
+
+                    // Define headers
+                    const headers = ['id', 'projectName', 'taskName', 'hourPrice', 'currency', 'state', 'startDateTime', 'endDateTime', 'timeSpent', 'totalPrice'];
+                    
+                    // Create CSV content with headers
+                    const csvContent = "data:text/csv;charset=utf-8,"
+                        + headers.join(',') + '\n'
+                        + filteredTasks.map(task => {
+                            return headers.map(header => {
+                                let value;
+                                if (header === 'timeSpent') {
+                                    const start = new Date(task.startDateTime);
+                                    const end = task.endDateTime ? new Date(task.endDateTime) : new Date();
+                                    const hours = (end - start) / (1000 * 60 * 60);
+                                    value = hours.toFixed(2);
+                                } else if (header === 'totalPrice') {
+                                    const start = new Date(task.startDateTime);
+                                    const end = task.endDateTime ? new Date(task.endDateTime) : new Date();
+                                    const hours = (end - start) / (1000 * 60 * 60);
+                                    value = (hours * task.hourPrice).toFixed(2);
+                                } else {
+                                    value = task[header];
+                                }
+                                // Handle null values and ensure proper CSV formatting
+                                if (value === null) return 'null';
+                                if (value === undefined) return '';
+                                // If value contains commas, wrap in quotes
+                                if (typeof value === 'string' && value.includes(',')) {
+                                    return `"${value}"`;
+                                }
+                                return value;
+                            }).join(',');
+                        }).join('\n');
+
+                    // Create and trigger download
+                    const encodedUri = encodeURI(csvContent);
+                    const link = document.createElement('a');
+                    link.setAttribute('href', encodedUri);
+                    const fileName = `timr_export_${new Date().toISOString().slice(0,10)}.csv`;
+                    link.setAttribute('download', fileName);
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    this.showExportModal = false;
+                },
+                onFileChange(e) {
+                    this.importFile = e.target.files[0]
+                },
+                importData() {
+                    const reader = new FileReader()
+                    reader.onload = (e) => {
+                        const contents = e.target.result
+                        const tasks = contents.split("\n").map(row => {
+                            const [id, projectName, taskName, hourPrice, currency, state, startDateTime, endDateTime] = row.split(",")
+                            return {
+                                id: parseInt(id),
+                                projectName,
+                                taskName,
+                                hourPrice: parseFloat(hourPrice),
+                                currency,
+                                state,
+                                startDateTime,
+                                endDateTime: endDateTime === 'null' ? null : endDateTime
+                            }
+                        })
+                        this.tasks = tasks
+                        this.saveTasks()
+                        this.showImportModal = false
+                    }
+                    reader.readAsText(this.importFile)
+                },
+                resetTasks() {
+                    this.tasks = []
+                    this.saveTasks()
+                }
+            },
+            mounted() {
+                this.loadTasks()
+                // Update active task timer every second
+                setInterval(() => {
+                    if (this.activeTask) {
+                        this.$forceUpdate()
+                    }
+                }, 1000)
+            }
+        }).mount('#app')
+    </script>
+</body>
+</html>
