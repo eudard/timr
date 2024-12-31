@@ -2,6 +2,9 @@
 
 **Timr** is a simple and intuitive web application for tracking tasks and projects, designed with a clean and user-friendly interface. Built using Vue.js and TailwindCSS, it helps you keep track of your time efficiently.
 
+![app preview](app.png)
+
+
 ## Features
 - **Track tasks in real-time:** Start, stop, and continue tasks with ease.
 - **Organize tasks by state:** Manage tasks across `Active`, `Invoiced`, and `Archived` categories.
